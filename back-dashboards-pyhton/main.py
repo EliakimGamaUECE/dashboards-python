@@ -466,15 +466,21 @@ class KpiResponse(BaseModel):
 @app.get("/api/kpis-resumo", response_model=KpiResponse)
 def kpis_resumo():
     """
-    Lê oee.xlsx e teep.xlsx e monta os 4 KPIs:
+    Lê oee.xlsx e teep.xlsx e monta 4 KPIs:
     - OEE SMT
     - OEE IM
     - TEEP SMT
     - TEEP IM
+
+    Mapeamento:
+    - pega as linhas existentes no Excel (Linha 1, Linha 2, ...)
+    - a primeira é usada como SMT
+    - a segunda (se existir) é usada como IM
+    - se só tiver uma, SMT e IM recebem o mesmo valor
     """
     meta = 0.77  # 77%
 
-    # ---- OEE ----
+    # ---------- OEE ----------
     df_oee = pd.read_excel(BASE_DIR / "oee.xlsx", engine="openpyxl")
     df_oee.columns = df_oee.columns.str.strip().str.lower()
     df_oee = df_oee.rename(columns={
@@ -483,20 +489,32 @@ def kpis_resumo():
         "oee": "OEE",
     })
     df_oee["Data"] = pd.to_datetime(df_oee["Data"])
+    df_oee["Linha"] = df_oee["Linha"].astype(str)
 
-    # pega o último valor por linha (por data)
+    # último valor de OEE por linha
     ultimos_oee = df_oee.sort_values("Data").groupby("Linha").tail(1)
+    linhas_oee = sorted(ultimos_oee["Linha"].unique().tolist())
 
-    def pega_oee(linha_nome: str) -> float:
-        row = ultimos_oee[ultimos_oee["Linha"] == linha_nome]
-        if row.empty:
-            return 0.0
-        return float(row["OEE"].iloc[0])  # assume 0–1
+    if not linhas_oee:
+        # fallback hardcore: nada na planilha, tudo 0
+        oee_smt_val = 0.0
+        oee_im_val = 0.0
+    else:
+        # primeira linha = SMT
+        linha_smt = linhas_oee[0]
+        oee_smt_val = float(
+            ultimos_oee[ultimos_oee["Linha"] == linha_smt]["OEE"].iloc[0]
+        )
+        # segunda linha = IM (se existir), senão copia SMT
+        if len(linhas_oee) > 1:
+            linha_im = linhas_oee[1]
+            oee_im_val = float(
+                ultimos_oee[ultimos_oee["Linha"] == linha_im]["OEE"].iloc[0]
+            )
+        else:
+            oee_im_val = oee_smt_val
 
-    oee_smt = pega_oee("SMT")
-    oee_im = pega_oee("IM")
-
-    # ---- TEEP ----
+    # ---------- TEEP ----------
     df_teep = pd.read_excel(BASE_DIR / "teep.xlsx", engine="openpyxl")
     df_teep.columns = df_teep.columns.str.strip().str.lower()
     df_teep = df_teep.rename(columns={
@@ -505,27 +523,37 @@ def kpis_resumo():
         "teep": "TEEP",
     })
     df_teep["Data"] = pd.to_datetime(df_teep["Data"])
+    df_teep["Linha"] = df_teep["Linha"].astype(str)
+
     ultimos_teep = df_teep.sort_values("Data").groupby("Linha").tail(1)
+    linhas_teep = sorted(ultimos_teep["Linha"].unique().tolist())
 
-    def pega_teep(linha_nome: str) -> float:
-        row = ultimos_teep[ultimos_teep["Linha"] == linha_nome]
-        if row.empty:
-            return 0.0
-        return float(row["TEEP"].iloc[0])  # assume 0–1
+    if not linhas_teep:
+        teep_smt_val = 0.0
+        teep_im_val = 0.0
+    else:
+        linha_smt_t = linhas_teep[0]
+        teep_smt_val = float(
+            ultimos_teep[ultimos_teep["Linha"] == linha_smt_t]["TEEP"].iloc[0]
+        )
+        if len(linhas_teep) > 1:
+            linha_im_t = linhas_teep[1]
+            teep_im_val = float(
+                ultimos_teep[ultimos_teep["Linha"] == linha_im_t]["TEEP"].iloc[0]
+            )
+        else:
+            teep_im_val = teep_smt_val
 
-    teep_smt = pega_teep("SMT")
-    teep_im = pega_teep("IM")
-
+    # ---------- formatação ----------
     def formata_kpi(title: str, valor_0a1: float) -> KpiItem:
         meta_0a1 = meta
-        valor_pct = valor_0a1 * 100          # ex: 0.812 → 81.2
-        meta_pct = meta_0a1 * 100           # 77
-        delta_pct = valor_pct - meta_pct    # diferença em pontos percentuais
+        valor_pct = valor_0a1 * 100
+        meta_pct = meta_0a1 * 100
+        delta_pct = valor_pct - meta_pct
 
         is_positive = valor_0a1 >= meta_0a1
         delta_label = "Acima da meta" if is_positive else "Abaixo da meta"
 
-        # strings já prontas para o front (com vírgula)
         value_str = f"{valor_pct:.1f}".replace(".", ",") + "%"
         meta_str = f"Meta: ≥ {meta_pct:.0f}%"
         delta_str = f"{delta_pct:+.1f}".replace(".", ",") + "%"
@@ -540,10 +568,10 @@ def kpis_resumo():
         )
 
     kpis = [
-        formata_kpi("OEE SMT", oee_smt),
-        formata_kpi("OEE IM", oee_im),
-        formata_kpi("TEEP SMT", teep_smt),
-        formata_kpi("TEEP IM", teep_im),
+        formata_kpi("OEE SMT", oee_smt_val),
+        formata_kpi("OEE IM", oee_im_val),
+        formata_kpi("TEEP SMT", teep_smt_val),
+        formata_kpi("TEEP IM", teep_im_val),
     ]
 
     return KpiResponse(kpis=kpis)
