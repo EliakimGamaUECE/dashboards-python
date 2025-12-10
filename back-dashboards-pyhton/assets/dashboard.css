@@ -1,0 +1,236 @@
+/* Fonte / base da página */
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* contêiner principal da página */
+.dashboard-page {
+  background-color: #f3f4f6;
+  min-height: 100vh;
+  padding: 16px 24px;
+}
+
+/* subtítulo */
+.dashboard-subtitle {
+  color: #6b7280;
+  margin-top: 0;
+}
+
+.top-menu {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.top-menu-tab {
+  padding: 6px 16px;
+  border-radius: 999px;
+  background-color: #e5e7eb;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  color: #111827;
+}
+
+.top-menu-tab--active {
+  background-color: #0f172a;
+  color: #f9fafb;
+}
+
+/* barra de filtros em linha */
+.filters-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 8px 0 12px;
+}
+
+.filter-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.filter-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+@media (max-width: 900px) {
+  .filters-bar {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* GRID PRINCIPAL: ESQUERDA = RESUMO / DIREITA = GRÁFICOS */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 420px minmax(0, 1fr);  /* antes devia estar algo tipo 280px 1fr */
+  gap: 16px;
+  align-items: flex-start;
+}
+
+/* em telas menores continua um embaixo do outro */
+@media (max-width: 1200px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* card genérico */
+.card {
+  background-color: white;
+  border-radius: 16px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+/* card menor (filtros) */
+.card--small-radius {
+  border-radius: 12px;
+}
+
+/* padding padrão dos cards */
+.card-padding {
+  padding: 12px 14px 16px;
+}
+
+.card-padding-sm {
+  padding: 10px 12px;
+}
+
+/* header de card: título + badge */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.card-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.card-badge {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+/* card de filtros */
+.filters-card {
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+/* linha de filtros: horizontal */
+.filters-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;         /* quebra de linha em telas menores */
+  margin-top: 8px;
+}
+
+/* cada campo de filtro */
+.filters-field {
+  flex: 1 1 180px;         /* cresce, mas não fica menor que ~180px */
+  margin-bottom: 0;        /* não precisa margem embaixo agora */
+}
+
+.filters-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin-bottom: 2px;
+  display: block;
+}
+
+
+/* grid de KPIs */
+/* grade de KPIs: vira 3x3 / 4x4 conforme a largura */
+.kpis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px 12px;              /* linha x coluna */
+  margin-top: 8px;
+}
+
+/* opcional: deixa os cards um pouco mais compactos */
+.kpi-card {
+  min-height: 90px;
+}
+
+
+/* kpi card base */
+.kpi-card {
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 90px;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.15);
+  font-size: 0.8rem;
+}
+
+/* bom = verde clarinho */
+.kpi-card-positive {
+  background-color: #ecfccb;   /* verde bem claro */
+  color: #111827;
+}
+
+/* ruim = vermelho */
+.kpi-card-negative {
+  background-color: #f97373;   /* vermelho mais forte */
+  color: #111827;              /* texto preto */
+}
+
+.kpi-meta {
+  color: #111827;
+  opacity: 0.75;
+}
+
+.kpi-delta-value {
+  font-weight: 600;
+}
+
+.kpi-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.kpi-value {
+  margin-top: 4px;
+  margin-bottom: 6px;
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.kpi-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.75rem;
+}
+
+.kpi-meta {
+  color: #6b7280;
+}
+
+/* coluna direita (gráficos) */
+.charts-column .card {
+  margin-bottom: 12px;
+}
+
+/* espaçador */
+.spacer-sm {
+  height: 8px;
+}
+
+/* título principal */
+.page-title {
+  margin-bottom: 4px;
+}

@@ -9,6 +9,10 @@ import plotly.io as pio
 from pydantic import BaseModel
 from typing import List
 
+from dash import Dash, dcc, html, Input, Output
+from starlette.middleware.wsgi import WSGIMiddleware
+
+
 app = FastAPI()
 
 origins = [
@@ -291,7 +295,6 @@ def grafico7_oee_velocimetro():
     html = pio.to_html(fig, full_html=True, include_plotlyjs="cdn")
     return HTMLResponse(content=html)
 
-
 @app.get("/dashboards/grafico8_teep_utilizacao.html", response_class=HTMLResponse)
 def grafico8_teep_utilizacao():
     try:
@@ -305,7 +308,7 @@ def grafico8_teep_utilizacao():
 
         df = pd.read_excel(file, engine="openpyxl")
 
-        # Normaliza os nomes das colunas: tira espaços e deixa minúsculo
+        # Normaliza os nomes das colunas
         df.columns = df.columns.str.strip().str.lower()
 
         # Espera essas colunas (sem acento mesmo: utilizacao)
@@ -328,33 +331,80 @@ def grafico8_teep_utilizacao():
         df["Data"] = pd.to_datetime(df["Data"])
         df["Linha"] = df["Linha"].astype(str)
 
-        df_melt = df.melt(
-            id_vars=["Data", "Linha"],
-            value_vars=["Utilizacao", "TEEP"],
-            var_name="Indicador",
-            value_name="valor"
+        # =========================
+        #  AGRUPA POR MÊS (PLANTA)
+        # =========================
+        df_mes = (
+            df.assign(ano_mes=df["Data"].dt.to_period("M"))
+              .groupby("ano_mes")[["Utilizacao", "TEEP"]]
+              .mean()
+              .reset_index()
         )
 
-        fig = px.line(
-            df_melt,
-            x="Data",
-            y="valor",
-            color="Indicador",
-            line_group="Linha",
-            title="Utilização x TEEP por dia",
-            labels={
-                "Data": "Data",
-                "valor": "Valor",
-                "Indicador": "Indicador"
-            }
+        if df_mes.empty:
+            return HTMLResponse("<h1>Sem dados de TEEP/Utilização para plotar</h1>", status_code=200)
+
+        df_mes["mes_label"] = df_mes["ano_mes"].dt.strftime("%b/%Y")
+        df_mes["util_pct"] = df_mes["Utilizacao"] * 100
+        df_mes["teep_pct"] = df_mes["TEEP"] * 100
+
+        meta_teep = 0.75   # 75% de meta – ajuste se quiser
+        meta_pct = meta_teep * 100
+
+        # =========================
+        #  FIGURA: BARRAS + LINHAS
+        # =========================
+        fig = go.Figure()
+
+        # Barras de Utilização
+        fig.add_bar(
+            x=df_mes["mes_label"],
+            y=df_mes["util_pct"],
+            name="Utilização",
         )
 
-        fig.update_yaxes(title_text="Percentual", tickformat=".0%")
+        # Barras de TEEP
+        fig.add_bar(
+            x=df_mes["mes_label"],
+            y=df_mes["teep_pct"],
+            name="TEEP",
+        )
 
-        fig.update_traces(
+        # Linha de tendência do TEEP
+        fig.add_scatter(
+            x=df_mes["mes_label"],
+            y=df_mes["teep_pct"],
             mode="lines+markers",
-            hovertemplate="Data: %{x|%d/%m/%Y}<br>%{legendgroup}: %{y:.1%}<extra></extra>"
+            name="Tendência TEEP",
         )
+
+        # Linha horizontal de meta TEEP
+        fig.add_scatter(
+            x=df_mes["mes_label"],
+            y=[meta_pct] * len(df_mes),
+            mode="lines",
+            name=f"Target {meta_pct:.0f}%",
+            line=dict(dash="dash"),
+        )
+
+        fig.update_layout(
+            title="TEEP Mensal IM - Utilização x TEEP",
+            xaxis_title="Mês",
+            yaxis_title="Percentual (%)",
+            barmode="group",  # barras lado a lado
+            template="plotly_white",
+            margin=dict(l=40, r=10, t=50, b=40),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            height=360,
+        )
+
+        fig.update_yaxes(range=[0, 100])
 
         html = pio.to_html(fig, full_html=True, include_plotlyjs="cdn")
         return HTMLResponse(content=html)
@@ -364,6 +414,7 @@ def grafico8_teep_utilizacao():
             f"<h1>Erro ao gerar gráfico de TEEP</h1><pre>{e!r}</pre>",
             status_code=500
         )
+
 
 
 @app.get("/dashboards/grafico9_oee_diario.html", response_class=HTMLResponse)
@@ -402,43 +453,71 @@ def grafico9_oee_diario():
         df["Data"] = pd.to_datetime(df["Data"])
         df["Linha"] = df["Linha"].astype(str)
 
-        df_melt = df.melt(
-            id_vars=["Data", "Linha"],
-            value_vars=["Disponibilidade", "Performance", "Qualidade", "OEE"],
-            var_name="Indicador",
-            value_name="valor",
+        # =========================
+        #  AGRUPA POR MÊS (PLANTA)
+        # =========================
+        df_mes = (
+            df.assign(ano_mes=df["Data"].dt.to_period("M"))
+              .groupby("ano_mes")["OEE"]
+              .mean()
+              .reset_index()
         )
 
-        fig = px.line(
-            df_melt,
-            x="Data",
-            y="valor",
-            color="Indicador",
-            line_group="Linha",
-            title="Disponibilidade, Performance, Qualidade e OEE - Diário",
-            labels={
-                "Data": "Data",
-                "valor": "Percentual",
-                "Indicador": "Indicador",
-            },
+        if df_mes.empty:
+            return HTMLResponse("<h1>Sem dados de OEE para plotar</h1>", status_code=200)
+
+        df_mes["mes_label"] = df_mes["ano_mes"].dt.strftime("%b/%Y")
+        df_mes["oee_pct"] = df_mes["OEE"] * 100
+
+        meta_oee = 0.75  # 75% de meta
+        meta_pct = meta_oee * 100
+
+        # =========================
+        #  FIGURA: BARRAS + LINHAS
+        # =========================
+        fig = go.Figure()
+
+        # Barras de OEE (%) por mês
+        fig.add_bar(
+            x=df_mes["mes_label"],
+            y=df_mes["oee_pct"],
+            name="OEE",
         )
 
-        fig.update_yaxes(title_text="Percentual", tickformat=".0%")
-
-        fig.update_traces(
+        # Linha de tendência (mesmos valores das barras)
+        fig.add_scatter(
+            x=df_mes["mes_label"],
+            y=df_mes["oee_pct"],
             mode="lines+markers",
-            hovertemplate="Data: %{x|%d/%m/%Y}<br>%{legendgroup}: %{y:.1%}<extra></extra>"
+            name="Tendência",
         )
 
-        # Linha de meta como trace (compatível com qualquer versão do Plotly)
-        meta_oee = 0.75  # 75% de meta – ajusta se quiser
-        fig.add_trace(go.Scatter(
-            x=[df["Data"].min(), df["Data"].max()],
-            y=[meta_oee, meta_oee],
+        # Linha horizontal de meta (pontilhada)
+        fig.add_scatter(
+            x=df_mes["mes_label"],
+            y=[meta_pct] * len(df_mes),
             mode="lines",
-            name=f"Meta OEE {meta_oee:.0%}",
-            line=dict(dash="dash")
-        ))
+            name=f"Target {meta_pct:.0f}%",
+            line=dict(dash="dash"),
+        )
+
+        fig.update_layout(
+            title="IM OEE Mensal da Planta",
+            xaxis_title="Mês",
+            yaxis_title="OEE (%)",
+            template="plotly_white",
+            margin=dict(l=40, r=10, t=50, b=40),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            height=360,
+        )
+
+        fig.update_yaxes(range=[0, 100])
 
         html = pio.to_html(fig, full_html=True, include_plotlyjs="cdn")
         return HTMLResponse(content=html)
@@ -448,7 +527,6 @@ def grafico9_oee_diario():
             f"<h1>Erro ao gerar gráfico de OEE</h1><pre>{e!r}</pre>",
             status_code=500
         )
-
 
 
 class KpiItem(BaseModel):
@@ -575,3 +653,332 @@ def kpis_resumo():
     ]
 
     return KpiResponse(kpis=kpis)
+
+# =========================
+# HELPERS PARA APP DASH
+# =========================
+
+def get_linhas_disponiveis():
+    """
+    Lê oee.xlsx e devolve a lista de linhas existentes (como strings).
+    Usado para popular o dropdown no Dash.
+    """
+    try:
+        file = BASE_DIR / "oee.xlsx"
+        if not file.exists():
+            return []
+
+        df = pd.read_excel(file, engine="openpyxl")
+        df.columns = df.columns.str.strip().str.lower()
+        df = df.rename(columns={"linha": "Linha"})
+        df["Linha"] = df["Linha"].astype(str)
+        return sorted(df["Linha"].unique().tolist())
+    except Exception:
+        return []
+
+
+def create_fig_oee_mensal(linha=None):
+    """
+    Cria a figura do gráfico 'IM OEE Mensal da Planta'.
+    Se linha for None -> considera todas as linhas (planta).
+    Se linha for algo como 'Linha 1' -> filtra antes de agregar.
+    """
+    file = BASE_DIR / "oee.xlsx"
+    fig = go.Figure()
+
+    if not file.exists():
+        fig.add_annotation(
+            text="Arquivo oee.xlsx não encontrado",
+            showarrow=False,
+            x=0.5, y=0.5, xref="paper", yref="paper",
+        )
+        return fig
+
+    df = pd.read_excel(file, engine="openpyxl")
+    df.columns = df.columns.str.strip().str.lower()
+
+    esperadas = ["data", "linha", "disponibilidade", "performance", "qualidade", "oee"]
+    faltando = [c for c in esperadas if c not in df.columns]
+    if faltando:
+        fig.add_annotation(
+            text=f"Colunas faltando no Excel OEE: {faltando}",
+            showarrow=False,
+            x=0.5, y=0.5, xref="paper", yref="paper",
+        )
+        return fig
+
+    df = df.rename(columns={
+        "data": "Data",
+        "linha": "Linha",
+        "disponibilidade": "Disponibilidade",
+        "performance": "Performance",
+        "qualidade": "Qualidade",
+        "oee": "OEE",
+    })
+
+    df["Data"] = pd.to_datetime(df["Data"])
+    df["Linha"] = df["Linha"].astype(str)
+
+    # filtro opcional por linha
+    if linha is not None:
+        df = df[df["Linha"] == linha]
+
+    df_mes = (
+        df.assign(ano_mes=df["Data"].dt.to_period("M"))
+          .groupby("ano_mes")["OEE"]
+          .mean()
+          .reset_index()
+    )
+
+    if df_mes.empty:
+        fig.add_annotation(
+            text="Sem dados de OEE para plotar",
+            showarrow=False,
+            x=0.5, y=0.5, xref="paper", yref="paper",
+        )
+        return fig
+
+    df_mes["mes_label"] = df_mes["ano_mes"].dt.strftime("%b/%Y")
+    df_mes["oee_pct"] = df_mes["OEE"] * 100
+
+    meta_oee = 0.75
+    meta_pct = meta_oee * 100
+
+    fig = go.Figure()
+    fig.add_bar(x=df_mes["mes_label"], y=df_mes["oee_pct"], name="OEE")
+    fig.add_scatter(
+        x=df_mes["mes_label"], y=df_mes["oee_pct"],
+        mode="lines+markers", name="Tendência",
+    )
+    fig.add_scatter(
+        x=df_mes["mes_label"], y=[meta_pct] * len(df_mes),
+        mode="lines", name=f"Target {meta_pct:.0f}%",
+        line=dict(dash="dash"),
+    )
+
+    titulo = "IM OEE Mensal da Planta" if linha is None else f"OEE Mensal - {linha}"
+    fig.update_layout(
+        title=titulo,
+        xaxis_title="Mês",
+        yaxis_title="OEE (%)",
+        template="plotly_white",
+        margin=dict(l=40, r=10, t=50, b=40),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+        ),
+        height=360,
+    )
+    fig.update_yaxes(range=[0, 100])
+    return fig
+
+
+def create_fig_teep_mensal(linha=None):
+    """
+    Cria a figura 'TEEP Mensal IM - Utilização x TEEP'.
+    Se linha for None -> planta.
+    Se linha for 'Linha 1' etc -> filtra antes.
+    """
+    file = BASE_DIR / "teep.xlsx"
+    fig = go.Figure()
+
+    if not file.exists():
+        fig.add_annotation(
+            text="Arquivo teep.xlsx não encontrado",
+            showarrow=False,
+            x=0.5, y=0.5, xref="paper", yref="paper",
+        )
+        return fig
+
+    df = pd.read_excel(file, engine="openpyxl")
+    df.columns = df.columns.str.strip().str.lower()
+
+    esperadas = ["data", "linha", "utilizacao", "teep"]
+    faltando = [c for c in esperadas if c not in df.columns]
+    if faltando:
+        fig.add_annotation(
+            text=f"Colunas faltando no Excel TEEP: {faltando}",
+            showarrow=False,
+            x=0.5, y=0.5, xref="paper", yref="paper",
+        )
+        return fig
+
+    df = df.rename(columns={
+        "data": "Data",
+        "linha": "Linha",
+        "utilizacao": "Utilizacao",
+        "teep": "TEEP",
+    })
+
+    df["Data"] = pd.to_datetime(df["Data"])
+    df["Linha"] = df["Linha"].astype(str)
+
+    # filtro opcional por linha
+    if linha is not None:
+        df = df[df["Linha"] == linha]
+
+    df_mes = (
+        df.assign(ano_mes=df["Data"].dt.to_period("M"))
+          .groupby("ano_mes")[["Utilizacao", "TEEP"]]
+          .mean()
+          .reset_index()
+    )
+
+    if df_mes.empty:
+        fig.add_annotation(
+            text="Sem dados de TEEP/Utilização para plotar",
+            showarrow=False,
+            x=0.5, y=0.5, xref="paper", yref="paper",
+        )
+        return fig
+
+    df_mes["mes_label"] = df_mes["ano_mes"].dt.strftime("%b/%Y")
+    df_mes["util_pct"] = df_mes["Utilizacao"] * 100
+    df_mes["teep_pct"] = df_mes["TEEP"] * 100
+
+    meta_teep = 0.75
+    meta_pct = meta_teep * 100
+
+    fig = go.Figure()
+    fig.add_bar(x=df_mes["mes_label"], y=df_mes["util_pct"], name="Utilização")
+    fig.add_bar(x=df_mes["mes_label"], y=df_mes["teep_pct"], name="TEEP")
+    fig.add_scatter(
+        x=df_mes["mes_label"], y=df_mes["teep_pct"],
+        mode="lines+markers", name="Tendência TEEP",
+    )
+    fig.add_scatter(
+        x=df_mes["mes_label"], y=[meta_pct] * len(df_mes),
+        mode="lines", name=f"Target {meta_pct:.0f}%",
+        line=dict(dash="dash"),
+    )
+
+    titulo = "TEEP Mensal IM - Utilização x TEEP" if linha is None else f"TEEP Mensal - {linha}"
+    fig.update_layout(
+        title=titulo,
+        xaxis_title="Mês",
+        yaxis_title="Percentual (%)",
+        barmode="group",
+        template="plotly_white",
+        margin=dict(l=40, r=10, t=50, b=40),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+        ),
+        height=360,
+    )
+    fig.update_yaxes(range=[0, 100])
+    return fig
+
+
+# =========================
+# APP DASH INTEGRADO AO FASTAPI
+# =========================
+
+dash_app = Dash(
+    __name__,
+    requests_pathname_prefix="/dash/",  # importante pro FastAPI + mount
+)
+
+# opções do dropdown (lidas da planilha)
+_linhas = get_linhas_disponiveis()
+linha_options = [{"label": "Todas as linhas", "value": "ALL"}] + [
+    {"label": linha, "value": linha} for linha in _linhas
+]
+
+dash_app.layout = html.Div(
+    style={
+        "fontFamily": "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        "backgroundColor": "#f3f4f6",
+        "minHeight": "100vh",
+        "padding": "16px 24px",
+    },
+    children=[
+        html.H1("Painel de KPIs da Fábrica", style={"marginBottom": "4px"}),
+        html.P("OEE e TEEP · Nível 3 · Resumo Mensal", style={"color": "#6b7280"}),
+
+        html.Div(style={"height": "8px"}),
+
+        # Filtro de linha
+        html.Div(
+            style={
+                "backgroundColor": "white",
+                "borderRadius": "12px",
+                "padding": "8px 12px",
+                "marginBottom": "12px",
+                "boxShadow": "0 1px 3px rgba(15,23,42,0.08)",
+                "display": "flex",
+                "alignItems": "center",
+                "gap": "12px",
+            },
+            children=[
+                html.Span("Linha:", style={"fontSize": "0.85rem", "fontWeight": 600}),
+                dcc.Dropdown(
+                    id="linha-dropdown",
+                    options=linha_options,
+                    value="ALL",
+                    clearable=False,
+                    style={"width": "220px", "fontSize": "0.85rem"},
+                ),
+            ],
+        ),
+
+        # Gráficos
+        html.Div(
+            style={"display": "grid", "gridTemplateColumns": "1fr", "gap": "16px"},
+            children=[
+                html.Div(
+                    style={
+                        "backgroundColor": "white",
+                        "borderRadius": "16px",
+                        "padding": "12px 14px 16px",
+                        "boxShadow": "0 1px 4px rgba(15, 23, 42, 0.08)",
+                    },
+                    children=[
+                        dcc.Graph(
+                            id="oee-graph",
+                            figure=create_fig_oee_mensal(),
+                            style={"height": "360px"},
+                        ),
+                    ],
+                ),
+                html.Div(
+                    style={
+                        "backgroundColor": "white",
+                        "borderRadius": "16px",
+                        "padding": "12px 14px 16px",
+                        "boxShadow": "0 1px 4px rgba(15, 23, 42, 0.08)",
+                    },
+                    children=[
+                        dcc.Graph(
+                            id="teep-graph",
+                            figure=create_fig_teep_mensal(),
+                            style={"height": "360px"},
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    ],
+)
+
+# callback: atualiza os dois gráficos quando muda a linha
+@dash_app.callback(
+    [Output("oee-graph", "figure"), Output("teep-graph", "figure")],
+    Input("linha-dropdown", "value"),
+)
+def atualizar_graficos(linha_value):
+    if linha_value in (None, "ALL"):
+        linha = None
+    else:
+        linha = linha_value
+    return create_fig_oee_mensal(linha), create_fig_teep_mensal(linha)
+
+
+# monta o app Dash dentro do FastAPI em /dash
+app.mount("/dash", WSGIMiddleware(dash_app.server))
